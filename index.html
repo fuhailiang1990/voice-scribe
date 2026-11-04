@@ -62,7 +62,8 @@
         <h1 class="font-bold text-base sm:text-lg tracking-tight">多多速记</h1>
         <div class="text-[10px] text-slate-400 hidden sm:block -mt-0.5">Voice Scribe · AI 录音转写</div>
       </div>
-      <span v-if="!speechSupported" class="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">当前浏览器不支持语音转写</span>
+      <span v-if="settings.asrProvider==='xfyun'" class="text-xs px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">讯飞流式转写</span>
+      <span v-else-if="!speechSupported" class="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">当前浏览器不支持语音转写</span>
     </div>
     <div class="flex items-center gap-2">
       <button @click="showHelp = true" class="p-2 rounded-xl hover:bg-white/10 text-slate-300 transition" title="帮助">❓</button>
@@ -268,6 +269,31 @@
         </div>
       </div>
 
+      <h3 class="text-sm font-semibold text-slate-300 mb-2 mt-6">🎙️ 转写引擎</h3>
+      <div class="flex gap-2 mb-3">
+        <button v-for="e in asrEngines" :key="e.key" @click="settings.asrProvider=e.key" class="px-3 py-1.5 rounded-lg text-xs border transition" :class="settings.asrProvider===e.key?'border-brand/50 bg-brand/10 text-brand':'border-white/10 text-slate-400 hover:bg-white/5'">{{e.label}}</button>
+      </div>
+      <div v-if="settings.asrProvider==='xfyun'" class="space-y-3">
+        <div class="text-xs text-slate-400 bg-white/5 rounded-lg p-3 leading-relaxed">
+          💡 <b>讯飞流式听写</b>（国内服务、实时出字、个人每日免费额度）：访问 <a href="https://sfc.xfyun.cn/" target="_blank" class="text-brand underline">sfc.xfyun.cn</a> → 注册 → 「创建新应用」→ 添加<b>「语音听写（流式版）」</b>服务 → 在应用详情页复制下方三个参数。
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">APPID</label>
+          <input v-model="settings.xfyunAppId" placeholder="如 6f2xxxxx" class="w-full mt-1 bg-dark/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand/50">
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">APIKey</label>
+          <input v-model="settings.xfyunApiKey" placeholder="如 7c9xxxxx" class="w-full mt-1 bg-dark/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand/50">
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">APISecret</label>
+          <input v-model="settings.xfyunApiSecret" type="password" placeholder="如 ODNkxxxxx" class="w-full mt-1 bg-dark/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand/50">
+        </div>
+      </div>
+      <div v-else class="text-xs text-slate-500 leading-relaxed">
+        使用浏览器内置语音识别（免费零配置）。⚠️ 国内 Chrome 通常连不上 Google 语音识别服务，如转写无响应请切换到「讯飞流式」。
+      </div>
+
       <div class="mt-6 pt-4 border-t border-white/10 text-xs text-slate-500 leading-relaxed">
         <div>📦 数据全部保存在本机浏览器（IndexedDB），卸载前请先导出。</div>
         <div class="mt-1">🎙️ 转写使用浏览器内置语音识别（Web Speech API），免费且无需配置。</div>
@@ -337,7 +363,11 @@ createApp({
     let timerInt=null, audioCtx=null, analyser=null, rafId=null, segStart=0;
 
     // ---- 设置 ----
-    const settings = ref({ llmEnabled:false, llmProvider:'kimi', llmBaseUrl:'https://api.moonshot.cn/v1', llmModel:'moonshot-v1-8k', llmApiKey:'' });
+    const settings = ref({ llmEnabled:false, llmProvider:'deepseek', llmBaseUrl:'https://api.deepseek.com/v1', llmModel:'deepseek-flash', llmApiKey:'', asrProvider:'browser', xfyunAppId:'', xfyunApiKey:'', xfyunApiSecret:'' });
+    const asrEngines = [
+      {key:'browser', label:'浏览器内置'},
+      {key:'xfyun', label:'讯飞流式'},
+    ];
     const llmProviders = [
       {key:'deepseek', label:'DeepSeek'},
       {key:'kimicode', label:'Kimi Code'},
@@ -351,6 +381,7 @@ createApp({
     // ---- computed ----
     const fmtDuration = computed(() => fmtHMS(duration.value));
     const totalMinutes = computed(() => Math.round(records.value.reduce((a,r)=>a+(r.duration||0),0)/60));
+    const speechActive = computed(() => recState.value==='recording' && (speechSupported.value || settings.value.asrProvider==='xfyun'));
     const filteredRecords = computed(() => {
       const kw = searchKw.value.trim().toLowerCase();
       if (!kw) return records.value;
@@ -430,11 +461,143 @@ createApp({
       segStart = Date.now();
       timerInt = setInterval(()=> duration.value = (Date.now()-segStart)/1000, 250);
       recState.value = 'recording';
-      startRecognition();
+      startTranscription();
+      if (xfActive) hookXfyunAudio();
       showToast('开始录音 🎙');
     }
 
-    function startRecognition(){
+    // ---- 转写引擎调度 ----
+    function startTranscription(){
+      if (settings.value.asrProvider==='xfyun' && settings.value.xfyunAppId && settings.value.xfyunApiKey && settings.value.xfyunApiSecret) {
+        startXfyun(true);
+      } else {
+        startRecognition0();
+      }
+    }
+
+    // ---- 讯飞流式听写 ----
+    let xfSocket=null, xfActive=false, xfConfirmed='', xfPending='', xfFirstFrame=true;
+    let xfSampleBuf=[], xfProcessor=null, xfSrcNode=null;
+
+    function b64FromBytes(bytes){
+      let s=''; const CH=0x8000;
+      for(let i=0;i<bytes.length;i+=CH){ s += String.fromCharCode.apply(null, bytes.subarray(i,i+CH)); }
+      return btoa(s);
+    }
+    async function xfyunAuthUrl(){
+      const host='iat-api.xfyun.cn';
+      const date=new Date().toUTCString();
+      const sigOrigin='host: '+host+'\ndate: '+date+'\nGET /v2/iat HTTP/1.1';
+      const enc=new TextEncoder();
+      const key=await crypto.subtle.importKey('raw', enc.encode(settings.value.xfyunApiSecret), {name:'HMAC', hash:'SHA-256'}, false, ['sign']);
+      const sig=await crypto.subtle.sign('HMAC', key, enc.encode(sigOrigin));
+      const signature=b64FromBytes(new Uint8Array(sig));
+      const authOrigin='api_key="'+settings.value.xfyunApiKey+'", algorithm="hmac-sha256", headers="host date request-line", signature="'+signature+'"';
+      const authorization=btoa(authOrigin);
+      return 'wss://'+host+'/v2/iat?authorization='+encodeURIComponent(authorization)+'&date='+encodeURIComponent(date)+'&host='+host;
+    }
+    function pcm16base64(f32){
+      const len=f32.length, bytes=new Uint8Array(len*2);
+      for(let i=0;i<len;i++){
+        const s=Math.max(-1,Math.min(1,f32[i]));
+        const v=s<0 ? s*0x8000 : s*0x7FFF;
+        bytes[i*2]=v&0xFF; bytes[i*2+1]=(v>>8)&0xFF;
+      }
+      return b64FromBytes(bytes);
+    }
+    function downsampleTo16k(f32, inRate){
+      if(Math.round(inRate)===16000) return f32;
+      const ratio=inRate/16000, outLen=Math.max(1,Math.floor(f32.length/ratio)), out=new Float32Array(outLen);
+      for(let i=0;i<outLen;i++){
+        const pos=i*ratio, i0=Math.floor(pos), i1=Math.min(i0+1,f32.length-1), frac=pos-i0;
+        out[i]=f32[i0]*(1-frac)+f32[i1]*frac;
+      }
+      return out;
+    }
+    function hookXfyunAudio(){
+      xfSampleBuf=[];
+      if(!audioCtx||!mediaStream) return;
+      try{
+        xfSrcNode=audioCtx.createMediaStreamSource(mediaStream);
+        xfProcessor=audioCtx.createScriptProcessor(4096,1,1);
+        xfProcessor.onaudioprocess=(e)=>{
+          if(recState.value!=='recording'||!xfActive||!xfSocket||xfSocket.readyState!==1) return;
+          const r16=downsampleTo16k(e.inputBuffer.getChannelData(0), audioCtx.sampleRate);
+          for(let i=0;i<r16.length;i++) xfSampleBuf.push(r16[i]);
+          while(xfSampleBuf.length>=640){
+            const frame=xfSampleBuf.splice(0,640);
+            xfSendFrame(frame, xfFirstFrame?0:1);
+            xfFirstFrame=false;
+          }
+        };
+        xfSrcNode.connect(xfProcessor);
+        xfProcessor.connect(audioCtx.destination);
+      }catch(err){ console.warn('xf audio hook', err); }
+    }
+    function xfSendFrame(samples, status){
+      if(!xfSocket||xfSocket.readyState!==1) return;
+      xfSocket.send(JSON.stringify({
+        common:{app_id:settings.value.xfyunAppId},
+        business:{language:'zh_cn', domain:'iat', accent:'mandarin'},
+        data:{status, format:'audio/L16;rate=16000', encoding:'raw', audio:pcm16base64(samples)}
+      }));
+    }
+    async function startXfyun(reset){
+      if(reset){ xfConfirmed=''; xfPending=''; }
+      xfActive=true; xfFirstFrame=true;
+      let url;
+      try{ url=await xfyunAuthUrl(); }
+      catch(e){ showToast('讯飞鉴权失败：'+e.message,'error'); xfActive=false; return; }
+      try{ if(xfSocket) xfSocket.close(); }catch(e){}
+      const ws=new WebSocket(url);
+      xfSocket=ws;
+      ws.onmessage=(ev)=>{
+        let json; try{ json=JSON.parse(ev.data); }catch(e){ return; }
+        if(json.code!==0){ showToast('讯飞错误 '+json.code+'：'+json.message,'error'); return; }
+        const d=json.data;
+        if(d&&d.result){
+          let str='';
+          (d.result.ws||[]).forEach(w=>w.cw.forEach(c=>str+=c.w));
+          if(d.result.pgs==='riddle'){ xfPending=str; }
+          else { if(str){ xfConfirmed+=str; liveSegments.value.push({t:Math.round(duration.value), text:str}); } xfPending=''; }
+          liveInterim.value=xfPending;
+        }
+        if(d&&d.status===2){
+          // 引擎判定说话结束；录音仍在继续则无缝开新会话
+          if(recState.value==='recording'&&xfActive){
+            try{ws.close();}catch(e){}
+            setTimeout(()=>{ if(recState.value==='recording'&&xfActive) startXfyun(false); },60);
+          }
+        }
+      };
+      ws.onerror=()=>{ if(recState.value==='recording') showToast('讯飞连接失败，请检查三要素','error'); };
+    }
+    function stopXfyun(){
+      xfActive=false;
+      const ws=xfSocket; xfSocket=null;
+      if(ws){
+        if(ws.readyState===1){
+          const buf=xfSampleBuf.splice(0);
+          xfSendFrameRaw(ws, buf.length?buf:[], 2);
+          setTimeout(()=>{ try{ws.close();}catch(e){} }, 800);
+        } else { try{ws.close();}catch(e){} }
+      }
+      if(xfProcessor){ try{xfProcessor.disconnect();}catch(e){} xfProcessor=null; }
+      if(xfSrcNode){ try{xfSrcNode.disconnect();}catch(e){} xfSrcNode=null; }
+      xfSampleBuf=[];
+    }
+    function xfSendFrameRaw(ws, samples, status){
+      try{
+        ws.send(JSON.stringify({
+          common:{app_id:settings.value.xfyunAppId},
+          business:{language:'zh_cn', domain:'iat', accent:'mandarin'},
+          data:{status, format:'audio/L16;rate=16000', encoding:'raw', audio:pcm16base64(samples)}
+        }));
+      }catch(e){}
+    }
+
+    // ---- 浏览器内置语音识别（Web Speech API） ----
+    function startRecognition0(){
       if (!SR) return;
       stopRecognition();
       recognition = new SR();
@@ -460,7 +623,7 @@ createApp({
       recognition.onend = () => {
         // 录音未结束则自动重启识别（Chrome 会自动断开长连接）
         if (recState.value === 'recording' && recognition) {
-          try { recognition.start(); } catch(e) { setTimeout(()=>{ if(recState.value==='recording') startRecognition(); }, 300); }
+          try { recognition.start(); } catch(e) { setTimeout(()=>{ if(recState.value==='recording') startRecognition0(); }, 300); }
         }
       };
       try { recognition.start(); } catch(e) {}
@@ -470,6 +633,7 @@ createApp({
         const r = recognition; recognition = null;
         try { r.onend = null; r.stop(); } catch(e) {}
       }
+      stopXfyun();
     }
 
     function togglePause(){
@@ -483,7 +647,7 @@ createApp({
         try { mediaRecorder.resume(); } catch(e) {}
         segStart = Date.now() - duration.value*1000;
         timerInt = setInterval(()=> duration.value = (Date.now()-segStart)/1000, 250);
-        startRecognition();
+        if (!xfActive) startTranscription();
       }
     }
 
@@ -667,7 +831,8 @@ createApp({
       showSettings, showHelp, toast, speechSupported,
       recState, duration, liveSegments, liveInterim, eqBars,
       settings, llmProviders, llmTesting, aiBusy,
-      fmtDuration, totalMinutes, filteredRecords,
+      fmtDuration, totalMinutes, filteredRecords, speechActive,
+      asrEngines,
       fmtSegTime, fmtMin, fmtDate, preview, fullText, audioUrl,
       toggleRecord, togglePause, cancelRecording,
       openDetail, closeDetail, startEdit, saveDetail, saveEdit, deleteRecord, exportRecord, copyText,

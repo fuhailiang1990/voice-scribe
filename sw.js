@@ -1,4 +1,4 @@
-const CACHE_NAME = 'voicescribe-v4';
+const CACHE_NAME = 'voicescribe-v5';
 const FILES_TO_CACHE = [
   './',
   './index.html',
