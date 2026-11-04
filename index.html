@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>多多速记 · AI 录音转写</title>
+  <meta name="theme-color" content="#0b1120">
+  <meta name="description" content="免费 AI 录音转写与撰写工具：实时语音转文字、AI 润色总结、待办提取">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="icon-192.png">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="多多速记">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/locale/zh-cn.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/idb-keyval@6.2.1/dist/umd.js"></script>
+  <style>
+    [v-cloak]{display:none}
+    ::-webkit-scrollbar{width:6px;height:6px}
+    ::-webkit-scrollbar-thumb{background:rgba(255,255,255,.15);border-radius:3px}
+    ::-webkit-scrollbar-track{background:transparent}
+    .glass{background:rgba(21,30,50,.65);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.08)}
+    .card{background:rgba(21,30,50,.55);border:1px solid rgba(255,255,255,.08);box-shadow:0 4px 24px rgba(0,0,0,.2);transition:transform .15s ease,box-shadow .15s ease,border-color .15s ease}
+    .card:hover{transform:translateY(-1px);box-shadow:0 8px 32px rgba(0,0,0,.25);border-color:rgba(255,255,255,.15)}
+    .btn-primary{background:linear-gradient(135deg,#22d3ee,#a78bfa);color:#0b1120;font-weight:700;box-shadow:0 4px 20px rgba(34,211,238,.25)}
+    .btn-primary:hover{box-shadow:0 6px 28px rgba(34,211,238,.4);transform:translateY(-1px)}
+    .btn-ghost{border:1px solid rgba(255,255,255,.15);color:#cbd5e1}
+    .btn-ghost:hover{background:rgba(255,255,255,.08)}
+    .fade-enter-active,.fade-leave-active{transition:opacity .25s ease,transform .25s ease}
+    .fade-enter-from,.fade-leave-to{opacity:0;transform:translateY(6px)}
+    .pulse-ring{position:relative}
+    .pulse-ring::before{content:'';position:absolute;inset:-6px;border-radius:9999px;border:2px solid rgba(248,113,113,.6);animation:ring 1.4s ease-out infinite}
+    @keyframes ring{0%{transform:scale(.9);opacity:1}100%{transform:scale(1.35);opacity:0}}
+    .eq-bar{width:4px;border-radius:2px;background:linear-gradient(180deg,#22d3ee,#a78bfa);transition:height .1s ease}
+    .segment-time{color:#22d3ee;font-variant-numeric:tabular-nums}
+    .toast-enter-active,.toast-leave-active{transition:all .3s ease}
+    .toast-enter-from,.toast-leave-to{opacity:0;transform:translateY(12px)}
+    .pb-safe{padding-bottom:env(safe-area-inset-bottom,0px)}
+    @media (max-width:639px){
+      .sidebar{display:none!important}
+      .mobile-bottom-nav{display:flex!important}
+      main{padding:0.75rem!important;padding-bottom:calc(0.75rem + 64px + env(safe-area-inset-bottom,0px))!important}
+    }
+    @media (min-width:640px){.mobile-bottom-nav{display:none!important}}
+  </style>
+  <script>
+    tailwind.config={theme:{extend:{colors:{brand:'#22d3ee',brand2:'#a78bfa',danger:'#f87171',warn:'#fbbf24',success:'#34d399',dark:'#0b1120',surface:'#151e32'}}}}
+  </script>
+</head>
+<body class="bg-gradient-to-br from-[#0b1120] via-[#0f172a] to-[#1e1b4b] text-slate-100 min-h-screen font-sans">
+<div id="app" v-cloak class="h-screen flex flex-col overflow-hidden">
+
+  <!-- Header -->
+  <header class="h-14 sm:h-16 border-b border-white/10 flex items-center justify-between px-3 sm:px-4 bg-white/5 backdrop-blur-xl shrink-0">
+    <div class="flex items-center gap-3">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-brand via-brand2 to-pink-500 flex items-center justify-center font-bold text-dark shadow-lg shadow-brand/20">记</div>
+      <div>
+        <h1 class="font-bold text-base sm:text-lg tracking-tight">多多速记</h1>
+        <div class="text-[10px] text-slate-400 hidden sm:block -mt-0.5">Voice Scribe · AI 录音转写</div>
+      </div>
+      <span v-if="!speechSupported" class="text-xs px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/30 text-amber-400">当前浏览器不支持语音转写</span>
+    </div>
+    <div class="flex items-center gap-2">
+      <button @click="showHelp = true" class="p-2 rounded-xl hover:bg-white/10 text-slate-300 transition" title="帮助">❓</button>
+      <button @click="openSettings" class="p-2 rounded-xl hover:bg-white/10 text-slate-300 transition" title="设置">⚙️</button>
+    </div>
+  </header>
+
+  <div class="flex flex-1 overflow-hidden">
+    <!-- Sidebar -->
+    <nav class="sidebar w-16 sm:w-52 shrink-0 border-r border-white/10 bg-white/5 backdrop-blur-md flex flex-col py-2">
+      <button v-for="t in tabs" :key="t.key" @click="switchTab(t.key)" class="flex items-center gap-3 mx-2 mb-1 px-3 py-3 text-sm rounded-xl transition" :class="tab===t.key?'bg-gradient-to-r from-brand/20 to-brand2/20 text-brand border border-brand/30 shadow-sm':'text-slate-400 hover:bg-white/5 hover:text-slate-200'">
+        <span class="text-xl">{{t.icon}}</span>
+        <span class="hidden sm:inline font-medium">{{t.label}}</span>
+        <span v-if="t.key==='library' && records.length" class="hidden sm:inline ml-auto text-xs bg-white/10 rounded-full px-2 py-0.5">{{records.length}}</span>
+      </button>
+      <div class="mt-auto p-4 text-xs text-slate-500 hidden sm:block border-t border-white/10 mx-2">
+        <div class="font-medium text-slate-300">{{today.format('M月D日 dddd')}}</div>
+        <div class="mt-0.5">共 {{records.length}} 条记录 · {{totalMinutes}} 分钟</div>
+      </div>
+    </nav>
+
+    <!-- Main -->
+    <main class="flex-1 overflow-y-auto p-4">
+
+      <!-- ========== 录音页 ========== -->
+      <div v-if="tab==='record'" class="max-w-2xl mx-auto">
+        <div class="card rounded-2xl p-6 sm:p-8">
+          <div class="text-center">
+            <div class="text-5xl sm:text-6xl font-bold font-mono tracking-wider" :class="recState!=='idle'?'text-brand':'text-slate-500'">{{fmtDuration}}</div>
+            <div class="mt-1 text-xs" :class="recState==='recording'?'text-red-400':'text-slate-500'">
+              <span v-if="recState==='recording'">● 录音中{{speechActive?'，转写中':'（仅录音）'}}</span>
+              <span v-else-if="recState==='paused'">⏸ 已暂停</span>
+              <span v-else>准备就绪</span>
+            </div>
+          </div>
+
+          <!-- 音频频谱 -->
+          <div class="flex items-end justify-center gap-1 h-12 mt-6" v-if="recState!=='idle'">
+            <div v-for="(h,i) in eqBars" :key="i" class="eq-bar" :style="{height: Math.max(6, h) + 'px'}"></div>
+          </div>
+          <div v-else class="h-12 mt-6 flex items-center justify-center text-slate-600 text-sm">🎙️ 点击下方按钮开始录音</div>
+
+          <!-- 控制按钮 -->
+          <div class="flex items-center justify-center gap-4 sm:gap-6 mt-6">
+            <button v-if="recState!=='idle'" @click="cancelRecording" class="w-12 h-12 rounded-full btn-ghost text-lg" title="放弃">🗑</button>
+            <button @click="toggleRecord" class="w-20 h-20 rounded-full flex items-center justify-center transition hover:scale-105"
+              :class="recState==='recording' ? 'pulse-ring bg-red-500 hover:bg-red-600' : 'btn-primary'">
+              <span class="text-3xl">{{recState==='idle'?'🎙':recState==='recording'?'⏹':'▶'}}</span>
+            </button>
+            <button v-if="recState!=='idle'" @click="togglePause" class="w-12 h-12 rounded-full btn-ghost text-lg" :title="recState==='paused'?'继续':'暂停'">
+              {{recState==='paused'?'▶':'⏸'}}
+            </button>
+          </div>
+
+          <div class="mt-4 text-center text-xs text-slate-500" v-if="recState==='idle'">
+            建议使用 Chrome / Edge 浏览器，中文识别效果最佳
+          </div>
+        </div>
+
+        <!-- 实时转写 -->
+        <div class="card rounded-2xl p-4 sm:p-6 mt-4" v-if="recState!=='idle' || liveSegments.length || liveInterim">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="font-semibold text-sm text-slate-300">实时转写</h2>
+            <span class="text-xs text-slate-500">{{liveSegments.length}} 段</span>
+          </div>
+          <div class="space-y-2 max-h-72 overflow-y-auto pr-1">
+            <div v-for="(s,i) in liveSegments" :key="i" class="flex gap-3 text-sm leading-relaxed">
+              <span class="segment-time text-xs pt-0.5 shrink-0 w-12">{{fmtSegTime(s.t)}}</span>
+              <span class="text-slate-200">{{s.text}}</span>
+            </div>
+            <div v-if="liveInterim" class="flex gap-3 text-sm leading-relaxed opacity-50">
+              <span class="segment-time text-xs pt-0.5 shrink-0 w-12">…</span>
+              <span>{{liveInterim}}</span>
+            </div>
+            <div v-if="!liveSegments.length && !liveInterim" class="text-slate-600 text-sm py-4 text-center">说话即转写，内容将实时显示在这里</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ========== 记录库 ========== -->
+      <div v-if="tab==='library'" class="max-w-3xl mx-auto">
+        <div class="flex items-center gap-2 mb-4">
+          <input v-model="searchKw" placeholder="🔍 搜索标题或内容…" class="flex-1 bg-surface border border-white/10 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-brand/50">
+        </div>
+        <div v-if="!filteredRecords.length" class="card rounded-2xl p-12 text-center text-slate-500">
+          <div class="text-4xl mb-2">📝</div>
+          <div>{{records.length?'没有找到匹配的记录':'还没有记录，去录一段吧'}}</div>
+        </div>
+        <div v-for="r in filteredRecords" :key="r.id" class="card rounded-2xl p-4 sm:p-5 mb-3 cursor-pointer" @click="openDetail(r)">
+          <div class="flex items-center justify-between gap-2">
+            <div class="font-semibold truncate">{{r.title || '未命名'}}</div>
+            <div class="text-xs text-slate-500 shrink-0">{{fmtDate(r.createdAt)}} · {{fmtMin(r.duration)}}</div>
+          </div>
+          <div class="text-xs text-slate-400 mt-1 truncate">{{preview(r)}}</div>
+          <div class="flex gap-2 mt-2">
+            <span v-if="r.audioBlob" class="text-[10px] px-2 py-0.5 rounded-full bg-brand/10 border border-brand/20 text-brand">🎧 含音频</span>
+            <span v-if="r.aiResult" class="text-[10px] px-2 py-0.5 rounded-full bg-brand2/10 border border-brand2/20 text-brand2">✨ AI 已处理</span>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- 移动端底部导航 -->
+  <nav class="mobile-bottom-nav fixed bottom-0 left-0 right-0 z-40 hidden justify-around items-center bg-[#0b1120]/90 backdrop-blur-xl border-t border-white/10 pb-safe h-16">
+    <button v-for="t in tabs" :key="t.key" @click="switchTab(t.key)" class="flex flex-col items-center justify-center flex-1 h-full gap-0.5" :class="tab===t.key?'text-brand':'text-slate-500'">
+      <span class="text-xl">{{t.icon}}</span>
+      <span class="text-[10px]">{{t.label}}</span>
+    </button>
+  </nav>
+
+  <!-- ========== 详情弹窗 ========== -->
+  <div v-if="detail" class="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm" @click.self="closeDetail">
+    <div class="glass rounded-2xl w-full max-w-2xl max-h-[92vh] flex flex-col overflow-hidden">
+      <div class="flex items-center justify-between p-4 border-b border-white/10 shrink-0">
+        <input v-model="detail.title" @change="saveDetail" class="bg-transparent font-bold text-lg flex-1 focus:outline-none focus:border-b border-brand/40 min-w-0">
+        <div class="flex gap-1 ml-2 shrink-0">
+          <button @click="exportRecord(detail,'txt')" class="p-2 rounded-lg hover:bg-white/10 text-xs" title="导出 TXT">📄</button>
+          <button @click="exportRecord(detail,'md')" class="p-2 rounded-lg hover:bg-white/10 text-xs" title="导出 Markdown">Ⓜ️</button>
+          <button @click="copyText(fullText(detail))" class="p-2 rounded-lg hover:bg-white/10 text-xs" title="复制全文">📋</button>
+          <button @click="deleteRecord(detail)" class="p-2 rounded-lg hover:bg-white/10 text-xs" title="删除">🗑</button>
+          <button @click="closeDetail" class="p-2 rounded-lg hover:bg-white/10">✕</button>
+        </div>
+      </div>
+
+      <div class="overflow-y-auto p-4 flex-1">
+        <!-- 播放器 -->
+        <audio v-if="detail.audioBlob" :src="audioUrl(detail)" controls class="w-full mb-4 h-10"></audio>
+
+        <!-- AI 操作 -->
+        <div class="rounded-xl border border-brand2/20 bg-brand2/5 p-3 mb-4">
+          <div class="flex flex-wrap gap-2">
+            <button @click="aiPolish" :disabled="aiBusy" class="px-3 py-1.5 rounded-lg text-xs bg-gradient-to-r from-brand to-brand2 text-dark font-semibold disabled:opacity-40">{{aiBusy?'处理中…':'✨ 润色全文'}}</button>
+            <button @click="aiSummary" :disabled="aiBusy" class="px-3 py-1.5 rounded-lg text-xs bg-gradient-to-r from-brand to-brand2 text-dark font-semibold disabled:opacity-40">{{aiBusy?'处理中…':'📝 生成纪要'}}</button>
+            <button @click="aiTodos" :disabled="aiBusy" class="px-3 py-1.5 rounded-lg text-xs bg-gradient-to-r from-brand to-brand2 text-dark font-semibold disabled:opacity-40">{{aiBusy?'处理中…':'✅ 提取待办'}}</button>
+          </div>
+          <div v-if="!settings.llmEnabled" class="text-xs text-amber-400 mt-2">⚠️ AI 功能未启用，请到 ⚙️ 设置中配置（Kimi 免费额度可用）</div>
+          <div v-if="detail.aiResult" class="mt-3 text-sm bg-dark/60 rounded-lg p-3 whitespace-pre-wrap leading-relaxed border border-white/5">{{detail.aiResult}}</div>
+        </div>
+
+        <!-- 转写内容 -->
+        <div class="flex items-center justify-between mb-2">
+          <h3 class="font-semibold text-sm text-slate-300">转写内容</h3>
+          <button @click="startEdit" class="text-xs btn-ghost px-2.5 py-1 rounded-lg">{{editing?'取消':'✏️ 编辑'}}</button>
+        </div>
+        <div v-if="!editing" class="space-y-2">
+          <div v-for="(s,i) in detail.segments" :key="i" class="flex gap-3 text-sm leading-relaxed">
+            <span class="segment-time text-xs pt-0.5 shrink-0 w-12">{{fmtSegTime(s.t)}}</span>
+            <span class="text-slate-200">{{s.text}}</span>
+          </div>
+          <div v-if="!detail.segments.length" class="text-slate-600 text-sm py-6 text-center">（无转写内容）</div>
+        </div>
+        <textarea v-else v-model="editText" rows="12" class="w-full bg-dark/60 border border-white/10 rounded-lg p-3 text-sm leading-relaxed focus:outline-none focus:border-brand/50"></textarea>
+        <button v-if="editing" @click="saveEdit" class="mt-2 btn-primary px-4 py-2 rounded-xl text-sm">保存修改</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 设置弹窗 ========== -->
+  <div v-if="showSettings" class="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm" @click.self="showSettings=false">
+    <div class="glass rounded-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-5">
+      <div class="flex items-center justify-between mb-4">
+        <h2 class="font-bold text-lg">⚙️ 设置</h2>
+        <button @click="showSettings=false" class="p-1.5 rounded-lg hover:bg-white/10">✕</button>
+      </div>
+
+      <h3 class="text-sm font-semibold text-slate-300 mb-2">🤖 AI 大模型（用于润色 / 纪要 / 待办）</h3>
+      <label class="flex items-center gap-2 mb-3 text-sm cursor-pointer">
+        <input type="checkbox" v-model="settings.llmEnabled" class="w-4 h-4 accent-cyan-400">
+        启用 AI 功能
+      </label>
+      <div class="space-y-3">
+        <div>
+          <label class="text-xs text-slate-400">服务商</label>
+          <div class="flex gap-2 mt-1">
+            <button v-for="p in llmProviders" :key="p.key" @click="settings.llmProvider=p.key; setLLMDefaults()" class="px-3 py-1.5 rounded-lg text-xs border transition" :class="settings.llmProvider===p.key?'border-brand/50 bg-brand/10 text-brand':'border-white/10 text-slate-400 hover:bg-white/5'">{{p.label}}</button>
+          </div>
+        </div>
+        <div v-if="settings.llmProvider==='kimi'" class="text-xs text-slate-400 bg-white/5 rounded-lg p-3 leading-relaxed">
+          💡 获取 Kimi API Key（有免费额度）：访问 <a href="https://platform.moonshot.cn/" target="_blank" class="text-brand underline">platform.moonshot.cn</a> → 注册/登录 → 「API Keys」→ 创建并复制。注意 Kimi Code 的 key 不是这个。
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">API Base URL</label>
+          <input v-model="settings.llmBaseUrl" class="w-full mt-1 bg-dark/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand/50">
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">模型名称</label>
+          <input v-model="settings.llmModel" class="w-full mt-1 bg-dark/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand/50">
+        </div>
+        <div>
+          <label class="text-xs text-slate-400">API Key（仅保存在本机浏览器）</label>
+          <input v-model="settings.llmApiKey" type="password" placeholder="sk-..." class="w-full mt-1 bg-dark/60 border border-white/10 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-brand/50">
+        </div>
+        <div class="flex gap-2">
+          <button @click="testLLM" :disabled="llmTesting" class="btn-primary px-4 py-2 rounded-xl text-sm disabled:opacity-40">{{llmTesting?'测试中…':'🔗 测试连接'}}</button>
+          <button @click="saveSettings" class="btn-ghost px-4 py-2 rounded-xl text-sm">保存</button>
+        </div>
+      </div>
+
+      <div class="mt-6 pt-4 border-t border-white/10 text-xs text-slate-500 leading-relaxed">
+        <div>📦 数据全部保存在本机浏览器（IndexedDB），卸载前请先导出。</div>
+        <div class="mt-1">🎙️ 转写使用浏览器内置语音识别（Web Speech API），免费且无需配置。</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========== 帮助弹窗 ========== -->
+  <div v-if="showHelp" class="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/60 backdrop-blur-sm" @click.self="showHelp=false">
+    <div class="glass rounded-2xl w-full max-w-md p-5 text-sm leading-relaxed">
+      <div class="flex items-center justify-between mb-3">
+        <h2 class="font-bold text-lg">❓ 使用帮助</h2>
+        <button @click="showHelp=false" class="p-1.5 rounded-lg hover:bg-white/10">✕</button>
+      </div>
+      <ol class="list-decimal list-inside space-y-2 text-slate-300">
+        <li>点击 🎙 开始录音，说话内容实时转文字</li>
+        <li>⏹ 停止后自动保存，可在「记录库」查看、回放、编辑</li>
+        <li>✨ 使用 AI 润色、生成会议纪要、提取待办（需在设置中配置 Kimi API Key，免费额度可用）</li>
+        <li>📄/Ⓜ️ 一键导出 TXT / Markdown，📋 复制全文</li>
+      </ol>
+      <div class="mt-3 text-xs text-slate-500">
+        ⚠️ 语音识别需要联网（Chrome/Edge 效果最佳），录音需授权麦克风。HTTPS 或本机打开才能使用。
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast -->
+  <transition name="toast">
+    <div v-if="toast.msg" class="fixed bottom-20 sm:bottom-6 left-1/2 -translate-x-1/2 z-[60] px-4 py-2.5 rounded-xl text-sm shadow-2xl"
+      :class="toast.type==='error'?'bg-red-500/90':'bg-slate-800/95 border border-white/10'">{{toast.msg}}</div>
+  </transition>
+</div>
+
+<script type="module">
+const { createApp, ref, computed, onMounted, onBeforeUnmount } = Vue;
+dayjs.locale('zh-cn');
+
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+const LS_KEY = 'voicescribe_settings_v1';
+const DB_KEY = 'voicescribe_records_v1';
+
+createApp({
+  setup() {
+    const tab = ref('record');
+    const tabs = [
+      {key:'record', icon:'🎙️', label:'速记'},
+      {key:'library', icon:'📝', label:'记录库'},
+    ];
+    const today = ref(dayjs());
+    const records = ref([]);
+    const searchKw = ref('');
+    const detail = ref(null);
+    const editing = ref(false);
+    const editText = ref('');
+    const showSettings = ref(false);
+    const showHelp = ref(false);
+    const toast = ref({msg:'', type:''});
+    const speechSupported = ref(!!SR);
+
+    // ---- 录音状态 ----
+    const recState = ref('idle'); // idle | recording | paused
+    const duration = ref(0);
+    const liveSegments = ref([]);
+    const liveInterim = ref('');
+    const eqBars = ref(Array.from({length:24}, ()=>4));
+    let mediaRecorder=null, mediaStream=null, audioChunks=[], recognition=null;
+    let timerInt=null, audioCtx=null, analyser=null, rafId=null, segStart=0;
+
+    // ---- 设置 ----
+    const settings = ref({ llmEnabled:false, llmProvider:'kimi', llmBaseUrl:'https://api.moonshot.cn/v1', llmModel:'moonshot-v1-8k', llmApiKey:'' });
+    const llmProviders = [
+      {key:'kimi', label:'Kimi（推荐）'},
+      {key:'siliconflow', label:'硅基流动'},
+      {key:'custom', label:'自定义'},
+    ];
+    const llmTesting = ref(false);
+    const aiBusy = ref(false);
+
+    // ---- computed ----
+    const fmtDuration = computed(() => fmtHMS(duration.value));
+    const totalMinutes = computed(() => Math.round(records.value.reduce((a,r)=>a+(r.duration||0),0)/60));
+    const filteredRecords = computed(() => {
+      const kw = searchKw.value.trim().toLowerCase();
+      if (!kw) return records.value;
+      return records.value.filter(r => (r.title||'').toLowerCase().includes(kw) || fullText(r).toLowerCase().includes(kw));
+    });
+
+    // ---- 工具 ----
+    function fmtHMS(sec){
+      sec = Math.floor(sec);
+      const h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60), s = sec%60;
+      const mm = String(m).padStart(2,'0'), ss = String(s).padStart(2,'0');
+      return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
+    }
+    function fmtSegTime(t){ return fmtHMS(t); }
+    function fmtMin(sec){ return Math.max(1, Math.round((sec||0)/60)) + '分钟'; }
+    function fmtDate(iso){ return dayjs(iso).format('M月D日 HH:mm'); }
+    function fullText(r){ return (r.segments||[]).map(s=>s.text).join('\n'); }
+    function preview(r){
+      const t = fullText(r).replace(/\s+/g,' ');
+      return t ? t.slice(0,80) : '（无转写内容）';
+    }
+    function audioUrl(r){
+      if (!r._url && r.audioBlob) r._url = URL.createObjectURL(r.audioBlob);
+      return r._url;
+    }
+    let toastTimer=null;
+    function showToast(msg, type=''){
+      toast.value = {msg, type};
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(()=> toast.value={msg:'',type:''}, 2600);
+    }
+
+    // ---- 录音 ----
+    function pickMime(){
+      const list = ['audio/webm;codecs=opus','audio/webm','audio/mp4'];
+      for (const m of list) if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)) return m;
+      return '';
+    }
+
+    async function toggleRecord(){
+      if (recState.value === 'idle') await startRecording();
+      else await stopAndSave();
+    }
+
+    async function startRecording(){
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
+      } catch(e) {
+        return showToast('无法访问麦克风：' + e.message, 'error');
+      }
+      audioChunks = [];
+      liveSegments.value = [];
+      liveInterim.value = '';
+      duration.value = 0;
+      const mime = pickMime();
+      try { mediaRecorder = new MediaRecorder(mediaStream, mime?{mimeType:mime}:undefined); }
+      catch(e) { mediaRecorder = new MediaRecorder(mediaStream); }
+      mediaRecorder.ondataavailable = e => { if (e.data.size) audioChunks.push(e.data); };
+      mediaRecorder.start(1000);
+
+      // 频谱
+      try {
+        audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+        const src = audioCtx.createMediaStreamSource(mediaStream);
+        analyser = audioCtx.createAnalyser(); analyser.fftSize = 64;
+        src.connect(analyser);
+        const buf = new Uint8Array(analyser.frequencyBinCount);
+        const loop = () => {
+          if (!analyser) return;
+          analyser.getByteFrequencyData(buf);
+          eqBars.value = Array.from(buf.slice(0,24)).map(v => (v/255)*44+4);
+          rafId = requestAnimationFrame(loop);
+        };
+        loop();
+      } catch(e) {}
+
+      segStart = Date.now();
+      timerInt = setInterval(()=> duration.value = (Date.now()-segStart)/1000, 250);
+      recState.value = 'recording';
+      startRecognition();
+      showToast('开始录音 🎙');
+    }
+
+    function startRecognition(){
+      if (!SR) return;
+      stopRecognition();
+      recognition = new SR();
+      recognition.lang = 'zh-CN';
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.onresult = (e) => {
+        for (let i=e.resultIndex; i<e.results.length; i++){
+          const res = e.results[i];
+          if (res.isFinal) {
+            const text = res[0].transcript.trim();
+            if (text) liveSegments.value.push({t: Math.round(duration.value), text});
+            liveInterim.value = '';
+          } else {
+            liveInterim.value = res[0].transcript;
+          }
+        }
+      };
+      recognition.onerror = (e) => {
+        if (e.error === 'not-allowed') showToast('麦克风/语音识别权限被拒绝', 'error');
+        else if (e.error === 'network') showToast('语音识别需要联网', 'error');
+      };
+      recognition.onend = () => {
+        // 录音未结束则自动重启识别（Chrome 会自动断开长连接）
+        if (recState.value === 'recording' && recognition) {
+          try { recognition.start(); } catch(e) { setTimeout(()=>{ if(recState.value==='recording') startRecognition(); }, 300); }
+        }
+      };
+      try { recognition.start(); } catch(e) {}
+    }
+    function stopRecognition(){
+      if (recognition) {
+        const r = recognition; recognition = null;
+        try { r.onend = null; r.stop(); } catch(e) {}
+      }
+    }
+
+    function togglePause(){
+      if (recState.value === 'recording') {
+        recState.value = 'paused';
+        try { mediaRecorder.pause(); } catch(e) {}
+        stopRecognition();
+        clearInterval(timerInt);
+      } else if (recState.value === 'paused') {
+        recState.value = 'recording';
+        try { mediaRecorder.resume(); } catch(e) {}
+        segStart = Date.now() - duration.value*1000;
+        timerInt = setInterval(()=> duration.value = (Date.now()-segStart)/1000, 250);
+        startRecognition();
+      }
+    }
+
+    function cleanupMedia(){
+      stopRecognition();
+      clearInterval(timerInt);
+      if (rafId) cancelAnimationFrame(rafId);
+      if (audioCtx) { try{audioCtx.close();}catch(e){} audioCtx=null; analyser=null; }
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') { try{mediaRecorder.stop();}catch(e){} }
+      if (mediaStream) { mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
+    }
+
+    async function stopAndSave(){
+      const wasPaused = recState.value === 'paused';
+      if (wasPaused) { try{mediaRecorder.resume();}catch(e){} }
+      stopRecognition();
+      clearInterval(timerInt);
+      if (rafId) cancelAnimationFrame(rafId);
+
+      const finish = async () => {
+        if (audioCtx) { try{audioCtx.close();}catch(e){} audioCtx=null; analyser=null; }
+        if (mediaStream) { mediaStream.getTracks().forEach(t=>t.stop()); mediaStream=null; }
+        const blob = audioChunks.length ? new Blob(audioChunks, {type: mediaRecorder?.mimeType || 'audio/webm'}) : null;
+        const segs = liveSegments.value.slice();
+        const dur = duration.value;
+        liveSegments.value = []; liveInterim.value = '';
+        recState.value = 'idle';
+        if (!segs.length && !blob) { showToast('录音太短，未保存'); return; }
+        const rec = {
+          id: 'r' + Date.now(),
+          title: dayjs().format('M月D日 HH:mm') + ' 录音',
+          createdAt: new Date().toISOString(),
+          duration: Math.round(dur),
+          segments: segs,
+          audioBlob: blob,
+          aiResult: '',
+        };
+        records.value.unshift(rec);
+        await persist();
+        showToast('已保存 ✅');
+        tab.value = 'library';
+      };
+      mediaRecorder.onstop = finish;
+      try { mediaRecorder.stop(); } catch(e) { finish(); }
+    }
+
+    function cancelRecording(){
+      cleanupMedia();
+      liveSegments.value = []; liveInterim.value = '';
+      duration.value = 0; recState.value = 'idle';
+      showToast('已放弃本次录音');
+    }
+
+    // ---- 存储 ----
+    async function persist(){
+      try { await idbKeyval.set(DB_KEY, records.value.map(({_url, ...r}) => r)); }
+      catch(e) { showToast('保存失败：' + e.message, 'error'); }
+    }
+    async function loadRecords(){
+      try {
+        const data = await idbKeyval.get(DB_KEY);
+        if (Array.isArray(data)) records.value = data;
+      } catch(e) {}
+    }
+
+    // ---- 详情 ----
+    function openDetail(r){ detail.value = r; editing.value = false; editText.value=''; }
+    function startEdit(){ editing.value = !editing.value; editText.value = fullText(detail.value); }
+    function closeDetail(){ detail.value = null; editing.value = false; }
+    async function saveDetail(){
+      detail.value.updatedAt = new Date().toISOString();
+      await persist();
+      showToast('已保存');
+    }
+    async function saveEdit(){
+      const text = editText.value.trim();
+      detail.value.segments = text ? [{t:0, text}] : [];
+      detail.value.updatedAt = new Date().toISOString();
+      editing.value = false;
+      await persist();
+      showToast('已保存修改');
+    }
+    async function deleteRecord(r){
+      if (!confirm('确定删除这条记录？音频和转写将一并删除。')) return;
+      records.value = records.value.filter(x => x.id !== r.id);
+      await persist();
+      closeDetail();
+      showToast('已删除');
+    }
+    function exportRecord(r, fmt){
+      const head = `# ${r.title}\n> ${dayjs(r.createdAt).format('YYYY-MM-DD HH:mm')} · 时长 ${fmtHMS(r.duration)}\n\n`;
+      const body = fmt==='md'
+        ? (r.segments||[]).map(s=>`- **[${fmtSegTime(s.t)}]** ${s.text}`).join('\n')
+        : fullText(r);
+      const blob = new Blob([head + body + '\n'], {type:'text/plain;charset=utf-8'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `${r.title.replace(/[\\/:*?"<>|]/g,'_')}.${fmt==='md'?'md':'txt'}`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+    async function copyText(t){
+      try { await navigator.clipboard.writeText(t); showToast('已复制 📋'); }
+      catch(e) { showToast('复制失败', 'error'); }
+    }
+
+    // ---- AI ----
+    function setLLMDefaults(){
+      const defaults = {
+        kimi: { baseUrl: 'https://api.moonshot.cn/v1', model: 'moonshot-v1-8k' },
+        siliconflow: { baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-7B-Instruct' },
+        custom: { baseUrl: settings.value.llmBaseUrl, model: settings.value.llmModel },
+      };
+      const d = defaults[settings.value.llmProvider] || defaults.custom;
+      settings.value.llmBaseUrl = d.baseUrl;
+      settings.value.llmModel = d.model;
+    }
+    async function callLLM(messages){
+      if (!settings.value.llmEnabled) throw new Error('请先在设置中启用 AI 功能');
+      if (!settings.value.llmApiKey) throw new Error('请先在设置中填入 API Key');
+      const res = await fetch(settings.value.llmBaseUrl.replace(/\/$/,'') + '/chat/completions', {
+        method:'POST',
+        headers:{'Content-Type':'application/json','Authorization':'Bearer '+settings.value.llmApiKey},
+        body: JSON.stringify({model: settings.value.llmModel, messages, temperature:0.3, max_tokens:2048})
+      });
+      if (!res.ok) throw new Error('API 请求失败 (' + res.status + ')');
+      const data = await res.json();
+      return data.choices?.[0]?.message?.content || '';
+    }
+    async function testLLM(){
+      llmTesting.value = true;
+      try {
+        const r = await callLLM([{role:'user', content:'回复：连接成功'}]);
+        showToast('连接成功：' + r.slice(0,20));
+      } catch(e) { showToast('连接失败：' + e.message, 'error'); }
+      finally { llmTesting.value = false; }
+    }
+    async function runAI(prompt, label){
+      const r = detail.value;
+      if (!r) return;
+      const text = fullText(r).trim();
+      if (!text) return showToast('没有转写内容', 'error');
+      aiBusy.value = true;
+      try {
+        r.aiResult = await callLLM([
+          {role:'system', content:'你是专业的中文会议纪要助手，输出简洁、结构化。'},
+          {role:'user', content: prompt + '\n\n--- 转写原文 ---\n' + text}
+        ]);
+        await persist();
+        showToast(label + '完成 ✨');
+      } catch(e) { showToast(label + '失败：' + e.message, 'error'); }
+      finally { aiBusy.value = false; }
+    }
+    const aiPolish = () => runAI('请对以下语音转写文本进行润色：修正错别字与同音误字、理顺语病、保留原意与口语感，按段落输出润色后的全文。', '润色');
+    const aiSummary = () => runAI('请将以下转写内容整理为会议纪要，包含：🎯 主题、📌 核心结论（要点式）、✅ 决议与行动项。', '纪要');
+    const aiTodos = () => runAI('请从以下转写内容中提取所有待办事项，格式为：☐ 事项 — 负责人（如有）— 截止时间（如有）。没有则说明未发现待办。', '待办提取');
+
+    // ---- 设置持久化 ----
+    function loadSettings(){
+      try {
+        const s = JSON.parse(localStorage.getItem(LS_KEY) || '{}');
+        Object.assign(settings.value, s);
+      } catch(e) {}
+    }
+    function saveSettings(){
+      localStorage.setItem(LS_KEY, JSON.stringify(settings.value));
+      showSettings.value = false;
+      showToast('设置已保存');
+    }
+    function openSettings(){ showSettings.value = true; }
+
+    function switchTab(k){ tab.value = k; if (k==='library') loadRecords(); }
+
+    onMounted(() => { loadSettings(); loadRecords(); });
+    onBeforeUnmount(() => { if (recState.value !== 'idle') cancelRecording(); });
+
+    return {
+      tab, tabs, today, records, searchKw, detail, editing, editText,
+      showSettings, showHelp, toast, speechSupported,
+      recState, duration, liveSegments, liveInterim, eqBars,
+      settings, llmProviders, llmTesting, aiBusy,
+      fmtDuration, totalMinutes, filteredRecords,
+      fmtSegTime, fmtMin, fmtDate, preview, fullText, audioUrl,
+      toggleRecord, togglePause, cancelRecording,
+      openDetail, closeDetail, startEdit, saveDetail, saveEdit, deleteRecord, exportRecord, copyText,
+      setLLMDefaults, testLLM, aiPolish, aiSummary, aiTodos,
+      saveSettings, openSettings, switchTab,
+    };
+  }
+}).mount('#app');
+
+// PWA
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('sw.js').catch(()=>{});
+}
+</script>
+</body>
+</html>
