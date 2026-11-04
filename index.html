@@ -603,7 +603,7 @@ createApp({
       settings.value.llmBaseUrl = d.baseUrl;
       settings.value.llmModel = d.model;
     }
-    async function callLLM(messages){
+    async function callLLM(messages, options = {}){
       if (!settings.value.llmEnabled) throw new Error('请先在设置中启用 AI 功能');
       if (!settings.value.llmApiKey) throw new Error('请先在设置中填入 API Key');
       const res = await fetch(settings.value.llmBaseUrl.replace(/\/$/,'') + '/chat/completions', {
