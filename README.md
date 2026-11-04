@@ -32,10 +32,10 @@ git push -u origin main
 
 ## 配置 AI（可选）
 
-设置 → 启用 AI 功能 → 选择 Kimi → 填入 API Key。
+设置 → 启用 AI 功能 → 选择 Kimi Code（`sk-kimi-` 开头的 Key）或 Kimi 开放平台 → 填入 API Key。
 
-获取 Key：访问 https://platform.moonshot.cn/ → 注册/登录 →「API Keys」→ 创建。
-注意：Kimi Code 的 key 不是 Moonshot API Key，需要单独创建。
+- **Kimi Code**：直接使用 Kimi 编程版订阅的 Key（`sk-kimi-` 开头），无需另行购买
+- **Kimi 开放平台**：访问 https://platform.moonshot.cn/ → 注册/登录 →「API Keys」→ 创建（有免费额度）
 
 ## 浏览器兼容性
 
